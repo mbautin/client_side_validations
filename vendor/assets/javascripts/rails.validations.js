@@ -7,6 +7,40 @@
  * http://www.opensource.org/licenses/mit-license.php
  */
 
+new function($) {
+  $.fn.setCursorPosition = function(pos) {
+    if ($(this).get(0).setSelectionRange) {
+      $(this).get(0).setSelectionRange(pos, pos);
+    } else if ($(this).get(0).createTextRange) {
+      var range = $(this).get(0).createTextRange();
+      range.collapse(true);
+      range.moveEnd('character', pos);
+      range.moveStart('character', pos);
+      range.select();
+    }
+  }
+}(jQuery);
+
+new function($) {
+  $.fn.getCursorPosition = function() {
+    var pos = 0;
+    var el = $(this).get(0);
+    // IE Support
+    if (document.selection) {
+      el.focus();
+      var Sel = document.selection.createRange();
+      var SelLength = document.selection.createRange().text.length;
+      Sel.moveStart('character', -el.value.length);
+      pos = Sel.text.length - SelLength;
+    }
+    // Firefox support
+    else if (el.selectionStart || el.selectionStart == '0')
+      pos = el.selectionStart;
+
+    return pos;
+  }
+} (jQuery);
+
 (function($) {
   $.fn.validate = function() {
     return this.filter('form[data-validate]').each(function() {
@@ -21,11 +55,11 @@
         .bind('form:validate:after',  function(eventData) { clientSideValidations.callbacks.form.after( form, eventData); })
         .bind('form:validate:before', function(eventData) { clientSideValidations.callbacks.form.before(form, eventData); })
         .bind('form:validate:fail',   function(eventData) { clientSideValidations.callbacks.form.fail(  form, eventData); })
-        .bind('form:validate:pass',   function(eventData) { clientSideValidations.callbacks.form.pass(  form, eventData); })
+        .bind('form:validate:pass',   function(eventData) { clientSideValidations.callbacks.form.pass(  form, eventData); });
 
         // Set up the events for each validatable form element
-        .find('[data-validate]:input:not(:radio)')
-          .live('focusout',                function()          { $(this).isValid(settings.validators); })
+      var inputs = form.find('[data-validate]:input:not(:radio)');
+      inputs
           .live('change',                  function()          { $(this).data('changed', true); })
           // Callbacks
           .live('element:validate:after',  function(eventData) { clientSideValidations.callbacks.element.after( $(this), eventData); })
@@ -41,7 +75,7 @@
               removeError(element);
             }, eventData) })
         // Checkboxes - Live events don't support filter
-        .end().find('[data-validate]:checkbox')
+        form.find('[data-validate]:checkbox')
           .live('click', function() { $(this).isValid(settings.validators); })
         // Inputs for confirmations
         .end().find('[id*=_confirmation]').each(function() {
@@ -58,6 +92,17 @@
               })
           }
         });
+
+      if (settings.instantValidation) {
+        inputs.live('keyup', function () {
+          $(this).data('changed', true);
+          $(this).isValid(settings.validators);
+        })
+      } else {
+        inputs.live('focusout', function () {
+          $(this).isValid(settings.validators);
+        })
+      }
 
       var addError = function(element, message) {
         clientSideValidations.formBuilders[settings.type].add(element, settings, message);
@@ -125,6 +170,11 @@
 })(jQuery);
 
 var clientSideValidations = {
+  restoreCursorPosition: function(element, pos) {
+    setTimeout(function() {
+      $(element).focus().setCursorPosition(pos);
+    }, 0);
+  },
   validators: {
     all: function() { return jQuery.extend({}, clientSideValidations.validators.local, clientSideValidations.validators.remote) },
     local: {
@@ -323,6 +373,9 @@ var clientSideValidations = {
               labelErrorField = jQuery(settings.label_tag),
               label = jQuery('label[for="' + element.attr('id') + '"]:not(.message)');
 
+          if (settings.instantValidation) {
+            var cursorPos = $(element).getCursorPosition();
+          }
           if (element.attr('autofocus')) { element.attr('autofocus', false) };
           element.before(inputErrorField);
           inputErrorField.find('span#input_tag').replaceWith(element);
@@ -330,6 +383,10 @@ var clientSideValidations = {
           labelErrorField.find('label.message').attr('for', element.attr('id'));
           label.replaceWith(labelErrorField);
           labelErrorField.find('label#label_tag').replaceWith(label);
+
+          if (settings.instantValidation) {
+            clientSideValidations.restoreCursorPosition(element, cursorPos);
+          }
         }
         jQuery('label.message[for="' + element.attr('id') + '"]').text(message);
       },
@@ -340,10 +397,16 @@ var clientSideValidations = {
             labelErrorField = label.closest('.' + errorFieldClass);
 
         if (inputErrorField[0]) {
+          if (settings.instantValidation) {
+            var cursorPos = $(element).getCursorPosition();
+          }
           inputErrorField.find('#' + element.attr('id')).detach();
           inputErrorField.replaceWith(element);
           label.detach();
           labelErrorField.replaceWith(label);
+          if (settings.instantValidation) {
+            clientSideValidations.restoreCursorPosition(element, cursorPos);
+          }
         }
       }
     },
